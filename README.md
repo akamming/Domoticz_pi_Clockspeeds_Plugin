@@ -1,0 +1,2 @@
+# Domoticz_pi_Clockspeeds_Plugin
+Domoticz_pi_clockspeeds_plugin
