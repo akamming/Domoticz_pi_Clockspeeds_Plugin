@@ -45,6 +45,16 @@ interval=0
 #constants
 DEVICEID="Clockspeeds"
 ARMSPEED=1
+V3DSPEED=2
+CORESPEED=3
+UNDERVOLTAGEDETECTED=4
+ARMFREQUENCYCAPPED=5
+CURRENTLYTHROTTLED=6
+SOFTTEMPERATURELIMITACTIVE=7
+UNDERVOLTAGEHASOCCURRED=8
+ARMFREQUENCYCAPPINGHASOCCURRED=9
+THROTTLINGHASOCCURRED=10
+SOFTTEMPERATURELIMITHASOCCURRED=11
 
 
 def Debug(text):
@@ -53,6 +63,19 @@ def Debug(text):
 
 def Log(text):
     Domoticz.Log("Debug: "+str(text))
+
+def UpdateSwitch(DeviceID,idx,name,nv,sv):
+    Debug ("UpdateSwitch("+str(DeviceID)+","+str(idx)+","+str(name)+","+str(nv)+","+str(sv)+" called")
+    if (not DeviceID in Devices) or (not idx in Devices[DeviceID].Units):
+        Domoticz.Unit(Name=Parameters["Name"]+"-"+name, Unit=idx, Type=244, Subtype=73, DeviceID=DeviceID, Used=True).Create()
+    if (Devices[DeviceID].Units[idx].nValue==nv and Devices[DeviceID].Units[idx].sValue==sv):
+        Debug("Switch status unchanged, not updating "+Devices[DeviceID].Units[idx].Name)
+    else:
+        Debug("Changing from + "+str(Devices[DeviceID].Units[idx].nValue)+","+Devices[DeviceID].Units[idx].sValue+" to "+str(nv)+","+str(sv))
+        Devices[DeviceID].Units[idx].nValue = int(nv)
+        Devices[DeviceID].Units[idx].sValue = sv
+        Devices[DeviceID].Units[idx].Update(Log=True)
+        Domoticz.Log("On/Off Switch ("+Devices[DeviceID].Units[idx].Name+")")
 
 def UpdateSensor(DeviceID,idx,name,tp,subtp,options,nv,sv):
     Debug("UpdateSensor("+str(DeviceID)+","+str(idx)+","+str(name)+","+str(tp)+","+str(subtp)+","+str(options)+","+str(nv)+","+str(sv)+") called)")
@@ -83,6 +106,36 @@ def getARMClockSpeed():
         Debug("No OS file found to check for clock speed, is this a Pi?")
         return -1
 
+def UpdateThrottlingSensor(throttled,bit,UnitID,Name):
+    if throttled&bit==bit:
+        UpdateSwitch(DEVICEID,UnitID,Name,1,"On")
+    else:
+        UpdateSwitch(DEVICEID,UnitID,Name,0,"Off")
+
+
+def getThrottling():
+    Debug("getThrottling() called")
+
+    #call vcgencmd
+    result=subprocess.run(['vcgencmd','get_throttled'],capture_output=True,text=True)
+    Debug("raw vcgencmd get_throttled out is "+str(result.stdout.strip()))
+
+    #convert output to integer
+    splittedoutput=result.stdout.strip().split("=")
+    throttled=int(splittedoutput[1],16)
+    Debug("throttled  = "+str(throttled))
+
+    #and let's start updating the sensors
+    UpdateThrottlingSensor(throttled,0x1,UNDERVOLTAGEDETECTED,"UnderVoltage Detected")
+    UpdateThrottlingSensor(throttled,0x2,ARMFREQUENCYCAPPED,"ARM Frequency Capped")
+    UpdateThrottlingSensor(throttled,0x4,CURRENTLYTHROTTLED,"Currently Throttled")
+    UpdateThrottlingSensor(throttled,0x8,SOFTTEMPERATURELIMITACTIVE,"Soft Temperature Limit Active")
+    UpdateThrottlingSensor(throttled,0x10000,UNDERVOLTAGEHASOCCURRED,"Under Voltage has Occurred")
+    UpdateThrottlingSensor(throttled,0x20000,ARMFREQUENCYCAPPINGHASOCCURRED,"ARM Frequency Capping has Occurred")
+    UpdateThrottlingSensor(throttled,0x40000,THROTTLINGHASOCCURRED,"Throttling has Occurred")
+    UpdateThrottlingSensor(throttled,0x80000,SOFTTEMPERATURELIMITHASOCCURRED,"Soft Temperature Limit has Occurred")
+
+
 def heartbeat():
     global interval
     global lastUpdate
@@ -90,9 +143,8 @@ def heartbeat():
     if (time.time()-lastUpdate)>=interval:
         lastUpdate=time.time() 
         Debug("Interval expired, run update")
-        result=subprocess.run(['vcgencmd','measure_clock arm'],stdout=subprocess.PIPE)
-        Debug(result)
         getARMClockSpeed()
+        getThrottling()
     else:
         Debug(str(int(interval-(time.time()-lastUpdate)))+" seconds till next intervall, do nothing")
 
