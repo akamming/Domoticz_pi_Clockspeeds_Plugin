@@ -90,21 +90,18 @@ def UpdateSensor(DeviceID,idx,name,tp,subtp,options,nv,sv):
     else:
         Debug("not updating General/Custom Sensor ("+Devices[DeviceID].Units[idx].Name+")")
 
-def getARMClockSpeed():
-    fn="/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq" # Get filename
-    Debug("getClockSpeed() called")
-    if os.path.exists(fn):
-        #f = open(fn, "r+")
-        f = open(fn)
-        line = f.readline()
-        f.close()
-        speed = int(int(line)/1000)
-        Debug("systemdevice exists, speed= "+str(speed))
-        UpdateSensor(DEVICEID,ARMSPEED,"ARM Clock Speed",243,31,{'Custom':'1;Mhz'},int(speed),float(speed))
-        return speed 
-    else:
-        Debug("No OS file found to check for clock speed, is this a Pi?")
-        return -1
+def GetvcgencmdOutput(args):
+    #call vcgencmd
+    result=subprocess.run(['vcgencmd',args],capture_output=True,text=True)
+    Debug("raw vcgencmd measure_clock out is "+str(result.stdout.strip()))
+
+    #convert output to integer
+    splittedoutput=result.stdout.strip().split("=")
+    output=int(splittedoutput[1],0)
+    Debug("output  = "+str(output))
+
+    return output
+
 
 def UpdateThrottlingSensor(throttled,bit,UnitID,Name):
     if throttled&bit==bit:
@@ -113,16 +110,26 @@ def UpdateThrottlingSensor(throttled,bit,UnitID,Name):
         UpdateSwitch(DEVICEID,UnitID,Name,0,"Off")
 
 
+def getClockSpeeds():
+    Debug("getARMClockSpeed() called")
+
+    #arm
+    ARMspeed=GetvcgencmdOutput('measure_clock arm')/1000000
+    UpdateSensor(DEVICEID,ARMSPEED,"ARM Clock Speed",243,31,{'Custom':'1;Mhz'},int(ARMspeed),float(ARMspeed))
+
+    #V3D
+    V3Dspeed=GetvcgencmdOutput('measure_clock v3d')/1000000
+    UpdateSensor(DEVICEID,V3DSPEED,"V3D Clock Speed",243,31,{'Custom':'1;Mhz'},int(V3Dspeed),float(V3Dspeed))
+
+    #Core
+    Corespeed=GetvcgencmdOutput('measure_clock core')/1000000
+    UpdateSensor(DEVICEID,CORESPEED,"Core Clock Speed",243,31,{'Custom':'1;Mhz'},int(Corespeed),float(Corespeed))
+
 def getThrottling():
     Debug("getThrottling() called")
 
     #call vcgencmd
-    result=subprocess.run(['vcgencmd','get_throttled'],capture_output=True,text=True)
-    Debug("raw vcgencmd get_throttled out is "+str(result.stdout.strip()))
-
-    #convert output to integer
-    splittedoutput=result.stdout.strip().split("=")
-    throttled=int(splittedoutput[1],16)
+    throttled=int(GetvcgencmdOutput('get_throttled'))
     Debug("throttled  = "+str(throttled))
 
     #and let's start updating the sensors
@@ -143,7 +150,7 @@ def heartbeat():
     if (time.time()-lastUpdate)>=interval:
         lastUpdate=time.time() 
         Debug("Interval expired, run update")
-        getARMClockSpeed()
+        getClockSpeeds()
         getThrottling()
     else:
         Debug(str(int(interval-(time.time()-lastUpdate)))+" seconds till next intervall, do nothing")
